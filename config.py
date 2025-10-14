@@ -65,7 +65,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/leumit",
         "games_folder": "data/leumit/leumit_games",
-        "active": True
+        "active": False
     },
     "2": {  # ליגה ארצית צפון
         "name": "ליגה ארצית צפון",
@@ -101,7 +101,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/u18_north",
         "games_folder": "data/u18_north/u18_north_games",
-        "active": True
+        "active": False
     },
     "5": {  # נוער על דרום
         "name": "נוער על דרום",
@@ -113,7 +113,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/u18_south",
         "games_folder": "data/u18_south/u18_south_games",
-        "active": True
+        "active": False
     },
     "6": {  # נערים א' לאומית צפון
         "name": "נערים א' לאומית צפון",
@@ -149,7 +149,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/leumit_women",
         "games_folder": "data/leumit_women/leumit_women_games",
-        "active": True
+        "active": False
     },
     "9": {  # נערות א' על
         "name": "נערות א' על",
@@ -161,19 +161,41 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/u18_women",
         "games_folder": "data/u18_women/u18_women_games",
-        "active": True
+        "active": False
     },
-    "10": {  # ליגת העל לגברים (קבועה)
+        "10": { # ליגת העל 
         "name": "ליגת Winner סל",
         "name_en": "Winner League",
-        "code": "ibsl",
+        "code": "winner",
         "country": "Israel",
         "season": get_current_season(),
-        "url": "https://basket.co.il/",
-        "scraper_type": "winner",
-        "data_folder": "data/ibsl",
-        "games_folder": "data/ibsl/ibsl_games",
-        "active": False
+        "url": "https://basket.co.il",
+        "scraper_type": "winner",  # 🔑 סוג scraper שונה!
+        "data_folder": "data/winner",
+        "games_folder": "data/winner/winner_games",
+        "active": True,
+        
+        # ⚙️ הגדרות ייחודיות לליגת Winner
+        "board_ids": [5, 33, 16, 26, 17],  # Board IDs מהאתר
+        "team_id_map": {
+            # web_team_id : official_team_id (מ-data/teams.csv)
+            # ⚠️ עדכן את המיפוי הזה לפי הקבוצות האמיתיות שלך!
+        
+            "1111": 12,     # מכבי קבוצת כנען רמת גן
+            "1110": 2556,   # הפועל IBI תל אביב
+            "1112": 38,     # הפועל בנק יהב י-ם
+            "1109": 17,     # מכבי Rapyd תל אביב
+            "1119": 1405,   # הפועל Rivulis גליל עליון
+            "1124": 145,    # מכבי אב־גד רעננה
+            "1122": 20,     # הפועל גילת טלקום העמק
+            "2109": 788,    # אליצור BRIGA נתניה
+            "1120": 3361,   # הפועל אלטשולר שחם ב"ש/דימונה
+            "1116": 1305,   # עירוני חי מוטורס נס ציונה
+            "1114": 120,    # עירוני לאטי קריית אתא
+            "1123": 81,     # מכבי תפוזינה ראשון לציון
+            "1113": 10,     # הפועל נתנאל חולון
+            "1118": 1535    # בני Penlink הרצליה
+        }
     },
     "11": {  # ליגת העל לנשים
         "name": "ליגת העל לנשים",
@@ -185,7 +207,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/women_pl",
         "games_folder": "data/women_pl/women_pl_games",
-        "active": True
+        "active": False
     }
 }
 
