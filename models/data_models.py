@@ -107,6 +107,29 @@ def generate_league_id(country, league_name, season):
     normalized = normalized.replace(" ", "_").replace("-", "_")
     return normalized
 
+def generate_player_folder_name(player_name: str, team_name: str) -> str:
+    """
+    יצירת שם תיקייה לשחקן - hash מהיר ללא תאריך לידה
+    
+    Args:
+        player_name: שם השחקן
+        team_name: שם הקבוצה הנוכחית
+    
+    Returns:
+        hash string לשם תיקייה
+    """
+    import hashlib
+    
+    # נרמול
+    name_clean = player_name.strip().lower()
+    team_clean = team_name.strip().lower()
+    
+    # יצירת hash
+    combined = f"{name_clean}_{team_clean}"
+    hash_obj = hashlib.sha256(combined.encode('utf-8'))
+    
+    return hash_obj.hexdigest()[:16]  # 16 תווים מספיק ייחודיים
+
 
 # ============================================
 # מבני נתונים (Data Classes)

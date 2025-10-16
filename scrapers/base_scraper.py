@@ -75,30 +75,35 @@ class BaseScraper(ABC):
         return calculator.calculate_all()
     
     def run(self):
-        """הרצה ראשית - זהה לכל scrapers"""
-        log_message("="*60, self.league_code)
-        log_message(f"STARTING SCRAPE: {self.league_config['name']}", self.league_code)
-        log_message(f"Mode: {self.scrape_mode.upper()}", self.league_code)
-        log_message("="*60, self.league_code)
-        
-        # שלב 1: שחקנים
-        if not self._update_player_details():
-            return False
-        
-        # שלב 2: משחקים
-        if not self._update_game_details():
-            return False
-        
-        # שלב 3: ממוצעים
-        if not self._calculate_averages():
-            return False
-        
-        log_message("="*60, self.league_code)
-        log_message("✅ SCRAPE COMPLETED SUCCESSFULLY", self.league_code)
-        log_message("="*60, self.league_code)
-        
-        return True
-    
+        """הרצת תהליך הגזירה"""
+        try:
+            self.log(f"Starting scrape in {self.scrape_mode.upper()} mode")
+            
+            # ✅ STEP 1: עדכון משחקים
+            if not self._update_game_details():
+                self.log("❌ Failed to update games")
+                return False
+            
+            # ✅ STEP 2: עדכון שחקנים
+            if not self._update_player_details():
+                self.log("❌ Failed to update player details")
+                return False
+            
+            # ✅ STEP 3: חישוב ממוצעים (אם יש)
+            if hasattr(self, '_calculate_averages'):
+                if not self._calculate_averages():
+                    self.log("❌ Failed to calculate averages")
+                    return False
+            
+            self.log("=" * 60)
+            self.log("✅ SCRAPING COMPLETED SUCCESSFULLY")
+            return True
+            
+        except Exception as e:
+            self.log(f"❌ CRITICAL ERROR: {e}")
+            import traceback
+            self.log(traceback.format_exc())
+            return False    
     def log(self, message, level='info'):
         """helper ל-logging"""
         log_message(message, self.league_code)
