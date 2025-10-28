@@ -17,6 +17,14 @@ from models import generate_player_id, generate_game_id, normalize_season
 from .base_scraper import BaseScraper
 from .processors import DataNormalizer, StatsCalculator
 
+# 🆕 ייבוא Supabase uploader
+try:
+    from utils.supabase_uploader import upload_player_full, upload_full_game
+    SUPABASE_ENABLED = True
+except ImportError:
+    SUPABASE_ENABLED = False
+    print("⚠️  Supabase uploader not found - will save to JSON only")
+
 
 class IBasketballScraper(BaseScraper):
     """גזירה מ-ibasketball.co.il עם שמירה ב-JSON"""
@@ -156,23 +164,23 @@ class IBasketballScraper(BaseScraper):
             if self.scrape_mode == 'quick':
                 return False, "Complete (quick mode)"
             
-      # במצב FULL - בדוק אם יש נתונים חסרים
-        try:
-            with open(details_files[0], 'r', encoding='utf-8') as f:
-                details = json.load(f)
-            
-            # בדוק שדות חובה
-            if not details.get('date_of_birth') or details['date_of_birth'] == '':
-                return True, "Missing DOB"
-            if not details.get('height') or details['height'] == '':
-                return True, "Missing height"
-            if not details.get('jersey_number') or details['jersey_number'] == '':
-                return True, "Missing number"
-            
-            return False, "Complete data"
-        except:
-            return True, "Corrupted file"
-    
+            # במצב FULL - בדוק אם יש נתונים חסרים
+            try:
+                with open(details_files[0], 'r', encoding='utf-8') as f:
+                    details = json.load(f)
+                
+                # בדוק שדות חובה
+                if not details.get('date_of_birth') or details['date_of_birth'] == '':
+                    return True, "Missing DOB"
+                if not details.get('height') or details['height'] == '':
+                    return True, "Missing height"
+                if not details.get('jersey_number') or details['jersey_number'] == '':
+                    return True, "Missing number"
+                
+                return False, "Complete data"
+            except:
+                return True, "Corrupted file"
+        
         # אם חסר אחד מהקבצים
         if not details_files:
             return True, "Missing details"
@@ -180,7 +188,8 @@ class IBasketballScraper(BaseScraper):
             return True, "Missing history"
         
         return True, "Unknown"
-        # ============================================
+        
+    # ============================================
     # GAME FILE MANAGEMENT
     # ============================================
     
@@ -256,7 +265,7 @@ class IBasketballScraper(BaseScraper):
                     
                     # צור player_id עם תאריך לידה
                     player_id = generate_player_id(player_name, details_raw['Date Of Birth'], self.league_id)
-                    
+                    self.log(f"   DEBUG: league_id = '{self.league_id}' (type: {type(self.league_id)})")
                     self.log(f"   🆔 Player ID: {player_id}")
                     
                     # גזור היסטוריה
@@ -275,6 +284,16 @@ class IBasketballScraper(BaseScraper):
                     }
                     
                     self._save_player_details(player_id, folder_name, details)
+                    
+                    # 🆕 דחיפה ל-Supabase
+                    if SUPABASE_ENABLED:
+                        try:
+                            # טען את ההיסטוריה שנשמרה
+                            history_list = self._load_player_history(folder_name)
+                            if history_list:
+                                upload_player_full(details, history_list)
+                        except Exception as e:
+                            self.log(f"   ⚠️  Supabase upload failed: {e}")
                     
                     if not (self.players_folder / folder_name).exists():
                         new_players += 1
@@ -581,6 +600,13 @@ class IBasketballScraper(BaseScraper):
                 self._save_game(game_data)
                 games_scraped += 1
                 
+                # 🆕 דחיפה ל-Supabase
+                if SUPABASE_ENABLED:
+                    try:
+                        upload_full_game(game_data)
+                    except Exception as e:
+                        self.log(f"   ⚠️  Supabase upload failed: {e}")
+                
                 # ✅ בדוק אם התוצאה שונה מה-XLS
                 xls_home = int(row['Home Score']) if pd.notna(row.get('Home Score')) else None
                 xls_away = int(row['Away Score']) if pd.notna(row.get('Away Score')) else None
@@ -611,6 +637,7 @@ class IBasketballScraper(BaseScraper):
         
         self.log(f"✅ Games updated: {games_scraped} scraped, {games_skipped} skipped")
         return True    
+    
     
     def _download_games_schedule(self):
         """הורדת לוח משחקים מהאתר"""

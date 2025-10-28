@@ -65,7 +65,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/leumit",
         "games_folder": "data/leumit/leumit_games",
-        "active": False
+        "active": True
     },
     "2": {  # ליגה ארצית צפון
         "name": "ליגה ארצית צפון",
@@ -101,7 +101,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/u18_north",
         "games_folder": "data/u18_north/u18_north_games",
-        "active": False
+        "active": True
     },
     "5": {  # נוער על דרום
         "name": "נוער על דרום",
@@ -113,7 +113,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/u18_south",
         "games_folder": "data/u18_south/u18_south_games",
-        "active": False
+        "active": True
     },
     "6": {  # נערים א' לאומית צפון
         "name": "נערים א' לאומית צפון",
@@ -149,7 +149,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/leumit_women",
         "games_folder": "data/leumit_women/leumit_women_games",
-        "active": False
+        "active": True
     },
     "9": {  # נערות א' על
         "name": "נערות א' על",
@@ -173,7 +173,7 @@ LEAGUES = {
         "scraper_type": "winner",  # 🔑 סוג scraper שונה!
         "data_folder": "data/winner",
         "games_folder": "data/winner/winner_games",
-        "active": True,
+        "active": False,
         
         # ⚙️ הגדרות ייחודיות לליגת Winner
         "board_ids": [5, 33, 16, 26, 17],  # Board IDs מהאתר
@@ -207,7 +207,7 @@ LEAGUES = {
         "scraper_type": "ibasketball",
         "data_folder": "data/women_pl",
         "games_folder": "data/women_pl/women_pl_games",
-        "active": False
+        "active": True
     }
 }
 

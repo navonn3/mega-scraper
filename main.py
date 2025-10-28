@@ -23,6 +23,7 @@ Basketball Scraper - Main Script - UPDATED
 
 import sys
 import argparse
+import json  
 from datetime import datetime
 from pathlib import Path
 
@@ -102,30 +103,36 @@ def update_global_players():
     
     all_players = []
     
-    for league_id, config in LEAGUES.items():
-        league_code = config['code']
-        player_details_file = Path(config['data_folder']) / f"{league_code}_player_details.csv"
-        
-        if not player_details_file.exists():
+    # ✅ שנה את זה לקרוא מ-JSON במקום CSV
+    players_base = Path('data/players')
+    
+    if not players_base.exists():
+        log_message("⚠️  No players folder found")
+        return
+    
+    # עבור על כל הליגות
+    for league_folder in players_base.iterdir():
+        if not league_folder.is_dir():
             continue
         
-        try:
-            df = pd.read_csv(player_details_file, encoding='utf-8-sig')
-            
-            for _, row in df.iterrows():
-                player_data = {
-                    'player_id': row['player_id'],
-                    'name': row['Name'],
-                    'current_team_id': row['team_id'],
-                    'league_id': row['league_id'],
-                    'date_of_birth': row.get('Date Of Birth', ''),
-                    'height': row.get('Height', ''),
-                    'jersey_number': row.get('Number', '')
-                }
-                all_players.append(player_data)
+        league_code = league_folder.name
+        log_message(f"   Reading {league_code} players...")
         
-        except Exception as e:
-            log_message(f"⚠️  Could not load players from league {league_id}: {e}")
+        # עבור על כל השחקנים בליגה
+        for player_folder in league_folder.iterdir():
+            if not player_folder.is_dir():
+                continue
+            
+            details_file = player_folder / 'details.json'
+            if not details_file.exists():
+                continue
+            
+            try:
+                with open(details_file, 'r', encoding='utf-8') as f:
+                    player_data = json.load(f)
+                    all_players.append(player_data)
+            except Exception as e:
+                log_message(f"⚠️  Error reading {player_folder.name}: {e}")
     
     if all_players:
         df = pd.DataFrame(all_players)
