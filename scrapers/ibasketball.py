@@ -211,11 +211,34 @@ class IBasketballScraper(BaseScraper):
         
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
+
+
     
     def _game_exists(self, game_id):
-        """בדוק אם משחק קיים"""
-        return (self.games_folder / f"{game_id}.json").exists()
+        """בדוק אם משחק קיים עם סטטיסטיקות מלאות"""
+        game_file = self.games_folder / f"{game_id}.json"
+        
+        if not game_file.exists():
+            return False
+        
+        # טען את הקובץ
+        try:
+            with open(game_file, 'r', encoding='utf-8') as f:
+                game_data = json.load(f)
+            
+            # בדוק אם יש סטטיסטיקות שחקנים
+            # משחק "ריק" לא יכיל player_stats
+            has_stats = 'player_stats' in game_data and len(game_data.get('player_stats', [])) > 0
+            
+            return has_stats
+            
+        except Exception as e:
+            self.log(f"   ⚠️  Error reading {game_id}: {e}")
+            return False
     
+    
+    
+
     # ============================================
     # PLAYER SCRAPING
     # ============================================
@@ -512,7 +535,7 @@ class IBasketballScraper(BaseScraper):
     # ============================================
     # GAME SCRAPING
     # ============================================
-    
+        
     def _update_game_details(self):
         """עדכון משחקים"""
         self.log("STEP 1: UPDATING GAME DETAILS")
@@ -528,14 +551,15 @@ class IBasketballScraper(BaseScraper):
         
         self.log(f"Found {len(games_df)} games in schedule")
         
-        # ✅ שמירת לו"ז מלא כ-JSON
+        # ✅ שמירת לו"ז מלא + העלאה ל-Supabase
         self._save_full_schedule(games_df)
         
-        # גזירת סטטיסטיקות רק למשחקים עם תוצאה
+        # ✅ גזירת סטטיסטיקות רק למשחקים עם תוצאה (ללא _save_full_schedule נוסף!)
         return self._scrape_all_games(games_df)
     
+        
     def _save_full_schedule(self, games_df):
-        """שמור לו"ז מלא של הליגה"""
+        """שמור לו"ז מלא של הליגה + העלאה ל-Supabase"""
         import pandas as pd
         
         schedule_data = []
@@ -543,7 +567,7 @@ class IBasketballScraper(BaseScraper):
         for idx, row in games_df.iterrows():
             game_code = str(row.get('Code', ''))
             
-            schedule_data.append({
+            game_dict = {
                 'game_id': f"{self.league_id}_{game_code}",
                 'league_id': self.league_id,
                 'season': self.league_config['season'],
@@ -555,15 +579,40 @@ class IBasketballScraper(BaseScraper):
                 'away_team': row.get('Away Team', ''),
                 'home_score': int(row['Home Score']) if pd.notna(row.get('Home Score')) else None,
                 'away_score': int(row['Away Score']) if pd.notna(row.get('Away Score')) else None,
-                'venue': row.get('Arena', ''),  # ✅ שינוי ל-venue
+                'venue': row.get('Arena', ''),
                 'status': 'completed' if pd.notna(row.get('Home Score')) else 'scheduled'
-            })
+            }
+            schedule_data.append(game_dict)
         
+        # שמירה ל-JSON
         schedule_path = self.games_folder / 'schedule.json'
         with open(schedule_path, 'w', encoding='utf-8') as f:
             json.dump(schedule_data, f, ensure_ascii=False, indent=2)
         
         self.log(f"✅ Full schedule saved: {len(schedule_data)} games")
+        
+        # 🆕 העלאה ל-Supabase
+        if SUPABASE_ENABLED:
+            try:
+                from utils.supabase_uploader import upsert_game
+                uploaded = 0
+                skipped = 0
+                
+                for game in schedule_data:
+                    try:
+                        if upsert_game(game):
+                            uploaded += 1
+                        else:
+                            skipped += 1
+                    except Exception as e:
+                        self.log(f"   ⚠️  Failed to upload {game['game_id']}: {e}")
+                        skipped += 1
+                
+                self.log(f"📤 Supabase: {uploaded} uploaded, {skipped} skipped")
+                
+            except Exception as e:
+                self.log(f"⚠️  Supabase schedule upload failed: {e}")    
+
     
     def _scrape_all_games(self, games_df):
         """גזירת משחקים - רק עם תוצאה"""
@@ -571,7 +620,7 @@ class IBasketballScraper(BaseScraper):
         
         games_scraped = 0
         games_skipped = 0
-        corrected_scores = []  # ✅ רשימת משחקים שהתוצאה תוקנה
+        corrected_scores = []
         
         for idx, row in games_df.iterrows():
             # דלג אם אין תוצאה
@@ -586,7 +635,7 @@ class IBasketballScraper(BaseScraper):
             game_url = f"https://ibasketball.co.il/match/{game_code}/"
             game_id = f"{self.league_id}_{game_code}"
             
-            # בדוק אם המשחק קיים
+            # בדוק אם המשחק קיים עם סטטיסטיקות
             if self._game_exists(game_id):
                 games_skipped += 1
                 continue
@@ -625,10 +674,7 @@ class IBasketballScraper(BaseScraper):
                     games_df.at[idx, 'Away Score'] = real_away
             
             time.sleep(1)
-        
-        # ✅ שמור schedule מעודכן
-        self._save_full_schedule(games_df)
-        
+                
         # ✅ הצג תיקונים
         if corrected_scores:
             self.log(f"⚠️  Corrected {len(corrected_scores)} scores from XLS:")
@@ -636,7 +682,7 @@ class IBasketballScraper(BaseScraper):
                 self.log(f"   {correction['game_id']}: {correction['xls_score']} → {correction['real_score']}")
         
         self.log(f"✅ Games updated: {games_scraped} scraped, {games_skipped} skipped")
-        return True    
+        return True
     
     
     def _download_games_schedule(self):

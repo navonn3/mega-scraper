@@ -240,7 +240,7 @@ def upload_full_game(game_data):
     print(f"📤 Uploading game: {game_data['game_id']}")
     print(f"{'='*50}")
     
-    # משחק
+    # 🔧 תיקון: שימוש בפונקציה הנכונה
     if not upsert_game(game_data):
         return False
     
@@ -261,6 +261,7 @@ def upload_full_game(game_data):
     
     print(f"✅ Game {game_id} uploaded successfully!\n")
     return True
+
 
 def upload_player_full(player_details, player_history):
     """מעלה שחקן + היסטוריה"""
