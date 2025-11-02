@@ -73,6 +73,85 @@ def upsert_player_history(history_data):
     print(f"✅ History: {success_count}/{len(history_data)}")
     return success_count
 
+
+# === קבוצות ===
+
+def upsert_team(team_data):
+    """מעלה/מעדכן קבוצה"""
+    data = {
+        'team_id': int(team_data['team_id']),
+        'league_id': int(team_data['league_id']),
+        'team_name': team_data['team_name'],
+        'short_name': team_data.get('short_name', team_data['team_name']),
+        'logo_url': team_data.get('logo_url'),
+        'club_id': team_data.get('club_id'),
+        'facebook': team_data.get('facebook'),
+        'instagram': team_data.get('instagram'),
+        'updated_at': datetime.now().isoformat()
+    }
+    
+    try:
+        result = supabase.table('teams').upsert(data).execute()
+        print(f"✅ Team: {data['team_name']}")
+        return True
+    except Exception as e:
+        print(f"❌ Error team {data['team_name']}: {e}")
+        return False
+
+# === קריאת נתונים קיימים ===
+
+def get_existing_teams(league_id):
+    """מחזיר dictionary של קבוצות קיימות: {team_id: team_data}"""
+    try:
+        response = supabase.table('teams')\
+            .select('team_id, team_name, club_id, logo_url')\
+            .eq('league_id', league_id)\
+            .execute()
+        
+        teams_dict = {}
+        for team in response.data:
+            teams_dict[team['team_id']] = team
+        
+        return teams_dict
+    except Exception as e:
+        print(f"❌ Error getting teams: {e}")
+        return {}
+
+
+def get_existing_players(league_id):
+    """מחזיר dictionary של שחקנים קיימים: {name_teamid: player_data}"""
+    try:
+        response = supabase.table('players')\
+            .select('player_id, name, current_team_id, date_of_birth, height, jersey_number')\
+            .eq('league_id', league_id)\
+            .execute()
+        
+        players_dict = {}
+        for player in response.data:
+            # מפתח: name_teamid
+            key = f"{player['name']}_{player['current_team_id']}"
+            players_dict[key] = player
+        
+        return players_dict
+    except Exception as e:
+        print(f"❌ Error getting players: {e}")
+        return {}
+
+
+def game_has_stats(game_id):
+    """בדוק אם למשחק יש סטטיסטיקות שחקנים"""
+    try:
+        response = supabase.table('game_player_stats')\
+            .select('game_id', count='exact')\
+            .eq('game_id', game_id)\
+            .execute()
+        
+        # אם יש לפחות שחקן אחד - המשחק נגזר
+        return response.count > 0
+    except Exception as e:
+        print(f"❌ Error checking game stats: {e}")
+        return False
+
 # === משחקים ===
 
 def upsert_game(game_data):

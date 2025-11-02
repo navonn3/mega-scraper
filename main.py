@@ -33,114 +33,6 @@ from utils import log_message
 from models import League
 import pandas as pd
 
-# ============================================
-# GLOBAL DATA MANAGEMENT
-# ============================================
-
-def update_global_leagues():
-    """עדכון קובץ leagues.csv גלובלי"""
-    log_message("Updating global leagues.csv...")
-    
-    leagues_data = []
-    for league_id, config in LEAGUES.items():
-        league = League(
-            league_id=league_id,
-            name=config['name'],
-            name_en=config['name_en'],
-            country=config['country'],
-            season=config['season'],
-            url=config['url']
-        )
-        leagues_data.append(league.to_dict())
-    
-    df = pd.DataFrame(leagues_data)
-    Path("data").mkdir(exist_ok=True)
-    df.to_csv("data/leagues.csv", index=False, encoding='utf-8-sig')
-    log_message(f"✅ Global leagues.csv updated: {len(leagues_data)} leagues")
-
-
-def update_global_teams():
-    """
-    ⚠️ DEPRECATED - לא דורס את teams.csv!
-    
-    הקובץ teams.csv מנוהל ידנית ומכיל:
-    - Team_ID מספרי
-    - League_ID
-    - Team_Name
-    - name_variations
-    
-    הפונקציה הזו רק מאמתת שהקובץ קיים.
-    """
-    log_message("Checking global teams.csv...")
-    
-    teams_file = "data/teams.csv"
-    
-    if not Path(teams_file).exists():
-        log_message("⚠️  WARNING: data/teams.csv not found!")
-        log_message("   Please ensure teams.csv exists with Team_ID, League_ID, Team_Name, name_variations")
-        return
-    
-    try:
-        df = pd.read_csv(teams_file, encoding='utf-8-sig')
-        
-        # בדיקת עמודות נדרשות
-        required_cols = ['Team_ID', 'League_ID', 'Team_Name', 'name_variations']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        
-        if missing_cols:
-            log_message(f"⚠️  WARNING: Missing columns in teams.csv: {', '.join(missing_cols)}")
-            return
-        
-        log_message(f"✅ Global teams.csv verified: {len(df)} teams")
-        
-    except Exception as e:
-        log_message(f"❌ Error reading teams.csv: {e}")
-
-
-def update_global_players():
-    """עדכון קובץ players.csv גלובלי (כל השחקנים מכל הליגות)"""
-    log_message("Updating global players.csv...")
-    
-    all_players = []
-    
-    # ✅ שנה את זה לקרוא מ-JSON במקום CSV
-    players_base = Path('data/players')
-    
-    if not players_base.exists():
-        log_message("⚠️  No players folder found")
-        return
-    
-    # עבור על כל הליגות
-    for league_folder in players_base.iterdir():
-        if not league_folder.is_dir():
-            continue
-        
-        league_code = league_folder.name
-        log_message(f"   Reading {league_code} players...")
-        
-        # עבור על כל השחקנים בליגה
-        for player_folder in league_folder.iterdir():
-            if not player_folder.is_dir():
-                continue
-            
-            details_file = player_folder / 'details.json'
-            if not details_file.exists():
-                continue
-            
-            try:
-                with open(details_file, 'r', encoding='utf-8') as f:
-                    player_data = json.load(f)
-                    all_players.append(player_data)
-            except Exception as e:
-                log_message(f"⚠️  Error reading {player_folder.name}: {e}")
-    
-    if all_players:
-        df = pd.DataFrame(all_players)
-        df.to_csv("data/players.csv", index=False, encoding='utf-8-sig')
-        log_message(f"✅ Global players.csv updated: {len(all_players)} players")
-    else:
-        log_message("⚠️  No players found to update global file")
-
 
 # ============================================
 # MAIN SCRAPING LOGIC
@@ -214,15 +106,6 @@ def scrape_all_leagues(scrape_mode=None):
         success = scrape_league(league_id, scrape_mode=scrape_mode)
         results[league_id] = success
     
-    # עדכון קבצים גלובליים
-    log_message("")
-    log_message("="*80)
-    log_message("UPDATING GLOBAL FILES")
-    log_message("="*80)
-    
-    update_global_leagues()
-    update_global_teams()  # רק בדיקה, לא כתיבה!
-    update_global_players()
     
     # סיכום
     log_message("")
@@ -332,14 +215,6 @@ Examples:
         log_message(f"Scraping single league: {league_id} - {LEAGUES[league_id]['name']}")
         success = scrape_league(league_id, scrape_mode=scrape_mode)
         
-        # עדכון קבצים גלובליים
-        log_message("")
-        log_message("="*80)
-        log_message("UPDATING GLOBAL FILES")
-        log_message("="*80)
-        update_global_leagues()
-        update_global_teams()  # רק בדיקה, לא כתיבה!
-        update_global_players()
         
         exit_code = 0 if success else 1
     else:

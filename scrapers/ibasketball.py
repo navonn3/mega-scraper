@@ -19,12 +19,15 @@ from .processors import DataNormalizer, StatsCalculator
 
 # 🆕 ייבוא Supabase uploader
 try:
-    from utils.supabase_uploader import upload_player_full, upload_full_game
+    from utils.supabase_uploader import (
+        upsert_team, upsert_player, upsert_player_history,
+        upsert_game, upsert_game_quarters, upsert_player_stats, upsert_team_stats,
+        get_existing_teams, get_existing_players, game_has_stats
+    )
     SUPABASE_ENABLED = True
 except ImportError:
     SUPABASE_ENABLED = False
     print("⚠️  Supabase uploader not found - will save to JSON only")
-
 
 class IBasketballScraper(BaseScraper):
     """גזירה מ-ibasketball.co.il עם שמירה ב-JSON"""
@@ -242,105 +245,298 @@ class IBasketballScraper(BaseScraper):
     # ============================================
     # PLAYER SCRAPING
     # ============================================
-        
+            
     def _update_player_details(self):
-        """עדכון פרטי שחקנים"""
-        from models import generate_player_folder_name
+        """עדכון פרטי שחקנים - לוגיקה מבוססת קבוצות"""
+        self.log("STEP 1: SCRAPING TEAMS & PLAYERS")
         
-        self.log("STEP 1: UPDATING PLAYER DETAILS")
-        
-        players = self._scrape_player_list()
-        if not players:
-            self.log("❌ No players found")
+        # שלב 1: גזירת קבוצות מעמוד הליגה
+        teams = self._scrape_teams_from_league()
+        if not teams:
+            self.log("❌ No teams found")
             return False
         
-        self.log(f"Found {len(players)} players")
+        self.log(f"Found {len(teams)} teams")
         
-        new_players = 0
-        updated_players = 0
-        skipped_players = 0
+        # שלב 2: טעינת נתונים קיימים מ-Supabase (במצב quick)
+        existing_teams = {}
+        existing_players = {}
         
-        for i, player in enumerate(players, 1):
-            player_name = player['Name']
-            current_team_raw = player['Team']
-            player_url = player['URL']
+        if self.scrape_mode == 'quick':
+            self.log("Loading existing data from Supabase...")
+            existing_teams = get_existing_teams(self.league_id)
+            existing_players = get_existing_players(self.league_id)
+            self.log(f"  Found {len(existing_teams)} existing teams")
+            self.log(f"  Found {len(existing_players)} existing players")
+        
+        # שלב 3: לולאה על כל קבוצה
+        total_new_teams = 0
+        total_updated_teams = 0
+        total_new_players = 0
+        total_updated_players = 0
+        
+        for i, team in enumerate(teams, 1):
+            self.log(f"\n[{i}/{len(teams)}] Processing: {team['team_name']} (ID={team['team_id']})")
+                        
+            # גזירת פרטי קבוצה (תמיד!)
+            self.log("  → Fetching team details...")
+            team_details = self._scrape_team_details(team['team_url'])
+            team.update(team_details)
             
-            # נרמול שם קבוצה
-            team_info = self.normalizer.normalize_team_name(current_team_raw)
-            current_team = team_info['club_name']
-            team_id = team_info['team_id']
+            # בדוק אם הקבוצה קיימת
+            team_exists = team['team_id'] in existing_teams
             
-            # יצירת folder_name מהיר (ללא תאריך לידה)
-            folder_name = generate_player_folder_name(player_name, current_team)
+            # שמירה ל-Supabase
+            if upsert_team(team):
+                if team_exists:
+                    total_updated_teams += 1
+                    self.log(f"  ✅ Team updated")
+                else:
+                    total_new_teams += 1
+                    self.log(f"  ✅ Team created")
             
-            self.log(f"[{i}/{len(players)}] Checking: {player_name}")
-            self.log(f"   📁 Folder: {folder_name}")
+                    
+            # גזירת שחקנים
+            self.log("  → Fetching players...")
+            players = self._scrape_team_players(team['team_url'], team['team_id'])
             
-            # בדוק אם צריך לגזור
-            needs_update, reason = self._needs_player_update(folder_name)
+            if not players:
+                self.log(f"  ⚠️  No players found")
+                continue
             
-            if needs_update:
-                self.log(f"   ⚙️ Updating: {reason}")
+            self.log(f"  Found {len(players)} players")
+            
+            # לולאה על שחקנים
+            for j, player in enumerate(players, 1):
+                player_name = player['name']
                 
-                try:
-                    # גזור פרטים (כולל תאריך לידה)
-                    details_raw = self._scrape_player_details(player_url)
-                    
-                    # צור player_id עם תאריך לידה
-                    player_id = generate_player_id(player_name, details_raw['Date Of Birth'], self.league_id)
-                    self.log(f"   DEBUG: league_id = '{self.league_id}' (type: {type(self.league_id)})")
-                    self.log(f"   🆔 Player ID: {player_id}")
-                    
-                    # גזור היסטוריה
-                    history_raw = self._scrape_player_history(player_url)
-                    self._save_player_history(player_id, folder_name, history_raw)
-                    
-                    # הכנת פרטים
-                    details = {
-                        'player_id': player_id,
-                        'name': player_name,
-                        'current_team_id': team_id,
-                        'league_id': self.league_id,
-                        'date_of_birth': details_raw['Date Of Birth'],
-                        'height': details_raw['Height'],
-                        'jersey_number': details_raw['Number']
-                    }
-                    
-                    self._save_player_details(player_id, folder_name, details)
-                    
-                    # 🆕 דחיפה ל-Supabase
-                    if SUPABASE_ENABLED:
-                        try:
-                            # טען את ההיסטוריה שנשמרה
-                            history_list = self._load_player_history(folder_name)
-                            if history_list:
-                                upload_player_full(details, history_list)
-                        except Exception as e:
-                            self.log(f"   ⚠️  Supabase upload failed: {e}")
-                    
-                    if not (self.players_folder / folder_name).exists():
-                        new_players += 1
+                self.log(f"    [{j}/{len(players)}] {player_name}")
+                                
+                # בדוק אם השחקן קיים
+                player_key = f"{player_name}_{team['team_id']}"
+                player_exists = player_key in existing_players
+                
+                # במצב quick - דלג רק אם יש כבר גובה ותאריך לידה
+                if player_exists and self.scrape_mode == 'quick':
+                    existing_player = existing_players[player_key]
+                    if existing_player.get('height') and existing_player.get('date_of_birth'):
+                        self.log(f"      ⏭️  Complete data (quick mode)")
+                        total_updated_players += 1
+                        continue
                     else:
-                        updated_players += 1
+                        self.log(f"      ⚙️  Missing data - updating...")           
+
+                
+                # גזירת פרטי שחקן
+                try:
+                    player_details = self._scrape_player_details(player['player_url'])
+                    player.update(player_details)
                     
-                    self.log(f"   ✅ Saved")
+                    # יצירת player_id אמיתי
+                    from models import generate_player_id
+                    dob = player.get('date_of_birth', '')
+                    real_player_id = generate_player_id(player_name, dob, self.league_id)
+                    player['player_id'] = real_player_id
+                    
+                    # גזירת היסטוריה
+                    history = self._scrape_player_history(player['player_url'])
+                    
+                    # המרת היסטוריה לפורמט Supabase
+                    history_rows = []
+                    for season, entries in history.items():
+                        for entry in entries:
+                            league_name = entry.get('league', '')
+                            # סינון קט סל
+                            if any(x in league_name for x in ['קט סל', 'קט-סל', 'ילדות', 'ילדים', 'קטסל']):
+                                continue
+                            
+                            history_rows.append({
+                                'player_id': real_player_id,
+                                'season': season,
+                                'team_name': entry.get('team', ''),
+                                'league_name': league_name,
+                                'league_id': self.league_id
+                            })
+                    
+                    # שמירה ל-Supabase
+                    if upsert_player(player):
+                        # שמירת היסטוריה
+                        if history_rows:
+                            upsert_player_history(history_rows)
+                        
+                        if player_exists:
+                            total_updated_players += 1
+                            self.log(f"      ✅ Updated")
+                        else:
+                            total_new_players += 1
+                            self.log(f"      ✅ Created")
                     
                 except Exception as e:
-                    self.log(f"   ❌ Error: {e}")
-            else:
-                skipped_players += 1
-                self.log(f"   ⏭️  Skipped: {reason}")
+                    self.log(f"      ❌ Error: {e}")
+                
+                time.sleep(1)
             
             time.sleep(1)
         
-        self.log(f"✅ Total: {len(players)} | New: {new_players} | Updated: {updated_players} | Skipped: {skipped_players}")
+        self.log(f"\n{'='*60}")
+        self.log(f"STEP 1 COMPLETED")
+        self.log(f"{'='*60}")
+        self.log(f"Teams: {total_new_teams} new, {total_updated_teams} updated")
+        self.log(f"Players: {total_new_players} new, {total_updated_players} updated")
         
-        # ✅ יצירת קובץ אינדקס
-        self._create_player_index()
+        return True    
+
+    
+    # ============================================
+    # TEAM SCRAPING (NEW)
+    # ============================================
+    
+    def _scrape_teams_from_league(self):
+        """גזירת רשימת קבוצות מעמוד הליגה"""
+        soup = get_soup(self.league_config['url'])
+        if not soup:
+            return []
         
-        return True
+        teams = []
+        team_gallery = soup.find("div", class_="team-gallery")
+        
+        if not team_gallery:
+            self.log("❌ No team gallery found")
+            return []
+        
+        for team_link in team_gallery.find_all("a", class_="team"):
+            team_url = team_link.get("href", "")
+            team_name = team_link.get_text(strip=True)
+            
+            # לוגו
+            logo_img = team_link.find("img")
+            logo_url = ""
+            if logo_img:
+                logo_url = logo_img.get("data-src") or logo_img.get("src", "")
+            
+            # חילוץ team_id מה-URL
+            team_id = None
+            if "/team/" in team_url:
+                import re
+                match = re.search(r"/team/(\d+)", team_url)
+                if match:
+                    team_id = int(match.group(1))
+            
+            if team_id and team_name:
+                teams.append({
+                    "team_id": team_id,
+                    "team_name": team_name,
+                    "team_url": team_url,
+                    "logo_url": logo_url,
+                    "league_id": self.league_id
+                })
+        
+        return teams
     
+    def _scrape_team_details(self, team_url):
+        """גזירת פרטים נוספים על קבוצה"""
+        soup = get_soup(team_url)
+        if not soup:
+            return {}
+        
+        import re
+        details = {
+            "club_id": None,
+            "facebook": None,
+            "instagram": None
+        }
+        
+        # club_id
+        club_div = soup.find("div", class_="data-club")
+        if club_div:
+            club_link = club_div.find("a")
+            if club_link and club_link.get("href"):
+                match = re.search(r"/club/(\d+)", club_link.get("href"))
+                if match:
+                    details["club_id"] = int(match.group(1))
+        
+        # פייסבוק
+        fb_div = soup.find("div", class_="data-facebook")
+        if fb_div:
+            fb_link = fb_div.find("a")
+            if fb_link:
+                details["facebook"] = fb_link.get("href", "").strip()
+        
+        # אינסטגרם
+        ig_div = soup.find("div", class_="data-instagram")
+        if ig_div:
+            ig_link = ig_div.find("a")
+            if ig_link:
+                details["instagram"] = ig_link.get("href", "").strip()
+        
+        return details
     
+    def _scrape_team_players(self, team_url, team_id):
+        """גזירת שחקנים מעמוד קבוצה"""
+        soup = get_soup(team_url)
+        if not soup:
+            return []
+        
+        import re
+        players = []
+        player_gallery = soup.find("div", class_="player-gallery")
+        
+        if not player_gallery:
+            return []
+        
+        for player_link in player_gallery.find_all("a", class_="player"):
+            player_url = player_link.get("href", "")
+            
+            # player_id זמני מה-URL
+            player_id = None
+            if "/player/" in player_url:
+                match = re.search(r"/player/([^/]+)", player_url)
+                if match:
+                    player_id = match.group(1)
+            
+            # שם השחקן
+            player_name_parts = []
+            for content in player_link.contents:
+                if content.name == "br":
+                    break
+                if isinstance(content, str):
+                    player_name_parts.append(content.strip())
+            
+            player_name = "".join(player_name_parts).strip()
+            
+            # תאריך לידה
+            dob = None
+            spans = player_link.find_all("span")
+            for span in spans:
+                text = span.get_text(strip=True)
+                if re.match(r"\d{2}-\d{2}-\d{4}", text):
+                    dob = text.replace("-", "/")
+                    break
+            
+            # מספר חולצה
+            jersey_number = None
+            number_span = player_link.find("span", class_="number")
+            if number_span:
+                number_text = number_span.get_text(strip=True)
+                try:
+                    jersey_number = int(number_text)
+                except:
+                    pass
+            
+            if player_id and player_name:
+                players.append({
+                    "player_id": player_id,  # זמני
+                    "name": player_name,
+                    "current_team_id": team_id,
+                    "league_id": self.league_id,
+                    "date_of_birth": dob,
+                    "jersey_number": jersey_number,
+                    "player_url": player_url
+                })
+        
+        return players
+
+
     def _create_player_index(self):
         """יצירת קובץ אינדקס לכל שחקני הליגה"""
         self.log("Creating player index...")
@@ -425,24 +621,34 @@ class IBasketballScraper(BaseScraper):
             players.append({"Name": name, "Team": team, "URL": player_url})
         
         return players
-    
+        
     def _scrape_player_details(self, player_url):
-        """גזירת פרטי שחקן בודד"""
+        """גזירת פרטי שחקן מעמוד השחקן"""
         soup = get_soup(player_url)
         if not soup:
-            return {"Date Of Birth": "", "Height": "", "Number": ""}
+            return {"date_of_birth": None, "height": None, "jersey_number": None}
+        
+        import re
         
         # תאריך לידה
         dob = soup.find("div", class_="data-birthdate")
         dob_text = dob.get_text("|", strip=True).split("|")[-1] if dob else ""
-        dob_formatted = "/".join(dob_text.split("-")[::-1]) if dob_text else ""
+        dob_formatted = "/".join(dob_text.split("-")[::-1]) if dob_text else None
         
         # גובה
         height = soup.find("div", class_="data-other", attrs={"data-metric": "גובה"})
         height_text = height.get_text("|", strip=True).split("|")[-1] if height else ""
+        height_value = None
+        if height_text:
+            match = re.search(r"(\d+)", height_text)
+            if match:
+                try:
+                    height_value = float(match.group(1)) / 100
+                except:
+                    pass
         
         # מספר שחקן
-        number = ""
+        number = None
         general_ul = soup.find("ul", class_="general")
         if general_ul:
             for li in general_ul.find_all("li"):
@@ -450,15 +656,18 @@ class IBasketballScraper(BaseScraper):
                 if label and "מספר" in label.text:
                     data_span = li.find("span", class_="data-number")
                     if data_span:
-                        number = data_span.get_text(strip=True)
+                        number_text = data_span.get_text(strip=True)
+                        try:
+                            number = int(number_text)
+                        except:
+                            pass
                         break
         
         return {
-            "Date Of Birth": dob_formatted,
-            "Height": height_text,
-            "Number": number
-        }
-    
+            "date_of_birth": dob_formatted,
+            "height": height_value,
+            "jersey_number": number
+        }    
     def _scrape_player_history(self, player_url):
         """גזירת היסטוריית קבוצות"""
         soup = get_soup(player_url)
